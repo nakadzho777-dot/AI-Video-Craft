@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- connect-src: 本番は https のホスト、開発は localhost。
+         Bearerトークン認証のため自ホストのAPIのみに接続する想定。 -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src 'self' https: http://localhost:8756 http://127.0.0.1:8756; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    />
+    <title>AI VideoCraft</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
