@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     default_ai_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
 
+    # --- ゆっくり解説: AquesTalk（本物のゆっくり声）---
+    # AquesTalk.dll 等を置いたフォルダ。未設定なら edge-tts を使う。
+    # 販売アプリで商用利用するには AquesTalk の商用ライセンスが必要。
+    aquestalk_dir: str = ""
+
+    # --- 音声: VOICEVOX（無料・商用可・多数のキャラ声）---
+    # VOICEVOX エンジンの URL。エンジンを起動していれば多数の声が使える。
+    # localhost だと IPv6(::1) 解決で遅くなるため 127.0.0.1 を既定にする。
+    voicevox_url: str = "http://127.0.0.1:50021"
+
     # --- 開発者モード ---
     # 開発者(自分)専用機能（宣伝AI: 記事/SEO量産）の有効化。
     # 既定は無効。AIVC_DEV_MODE=1 で有効化する。エンドユーザーには公開しない。
@@ -66,9 +76,10 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""        # whsec_...
     stripe_price_perpetual: str = ""       # 買い切り用 price_...（mode=payment）
     stripe_price_subscription: str = ""    # サブスク用 price_...（mode=subscription）
-    # チェックアウト後のリダイレクト先（デスクトップは案内ページ等）
-    billing_success_url: str = "https://example.com/thanks"
-    billing_cancel_url: str = "https://example.com/cancel"
+    # チェックアウト後のリダイレクト先。空ならバックエンド自身の案内ページ
+    # (/billing/success, /billing/cancel) を自動で使う。
+    billing_success_url: str = ""
+    billing_cancel_url: str = ""
 
     @property
     def database_url(self) -> str:

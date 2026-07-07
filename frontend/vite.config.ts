@@ -32,7 +32,13 @@ export default defineConfig(({ mode }) => {
         {
           // メインプロセス
           entry: 'electron/main.ts',
-          vite: { define: injected },
+          vite: {
+            define: injected,
+            build: {
+              // electron-updater / ffmpeg-static は実行時読み込み（バンドルしない）
+              rollupOptions: { external: ['electron-updater', 'ffmpeg-static'] },
+            },
+          },
         },
         {
           // preload（コンテキスト分離ブリッジ）

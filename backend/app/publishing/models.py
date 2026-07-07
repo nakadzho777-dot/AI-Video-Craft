@@ -30,6 +30,7 @@ class PublishRequest(BaseModel):
     # topic か project_id のどちらかを指定（project_id 優先で企画を参照）。
     topic: str = ""
     notes: str = Field(default="", description="トーン・宣伝したい点など")
+    video_path: str = ""  # 動画を読み込むとAIが内容を確認して反映
 
     provider: str | None = None
     model: str | None = None
@@ -43,3 +44,4 @@ class PublishResponse(BaseModel):
     provider: str
     model: str
     saved_to_project: int | None = None
+    video_analysis: str = ""  # AIが確認した動画内容の要約

@@ -1,6 +1,6 @@
 """プロジェクト CRUD.
 
-動画1本ごとのプロジェクト管理。アカウント単位で所有し、
+動画1本ごとのプロジェクト管理。PC（デバイス）単位で所有し、
 Free プランは作成数制限（1件）を適用する。
 """
 from __future__ import annotations
@@ -10,18 +10,18 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
-from ..auth.deps import get_current_user
 from ..db.database import get_session
-from ..db.models import Project, User
-from ..license.manager import limits_for_user
+from ..db.models import Project
+from ..deps import get_device_id
+from ..license.manager import limits_for_device
 from ..schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def _owned(session: Session, project_id: int, user: User) -> Project:
+def _owned(session: Session, project_id: int, device_id: str) -> Project:
     project = session.get(Project, project_id)
-    if not project or project.owner_user_id != user.id:
+    if not project or project.device_id != device_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "プロジェクトが見つかりません")
     return project
 
@@ -29,12 +29,12 @@ def _owned(session: Session, project_id: int, user: User) -> Project:
 @router.get("", response_model=list[ProjectRead])
 def list_projects(
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> list[Project]:
     return list(
         session.exec(
             select(Project)
-            .where(Project.owner_user_id == user.id)
+            .where(Project.device_id == device_id)
             .order_by(Project.updated_at.desc())
         )
     )
@@ -44,17 +44,13 @@ def list_projects(
 def create_project(
     payload: ProjectCreate,
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> Project:
-    # Free プランのプロジェクト数制限（自分のプロジェクトのみ数える）
-    limit = limits_for_user(user, session).max_projects
+    # Free プランのプロジェクト数制限（このPCのプロジェクトのみ数える）
+    limit = limits_for_device(device_id, session).max_projects
     if limit is not None:
         count = len(
-            list(
-                session.exec(
-                    select(Project).where(Project.owner_user_id == user.id)
-                )
-            )
+            list(session.exec(select(Project).where(Project.device_id == device_id)))
         )
         if count >= limit:
             raise HTTPException(
@@ -66,7 +62,7 @@ def create_project(
             )
 
     project = Project.model_validate(payload)
-    project.owner_user_id = user.id
+    project.device_id = device_id
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -77,9 +73,9 @@ def create_project(
 def get_project(
     project_id: int,
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> Project:
-    return _owned(session, project_id, user)
+    return _owned(session, project_id, device_id)
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
@@ -87,9 +83,9 @@ def update_project(
     project_id: int,
     payload: ProjectUpdate,
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> Project:
-    project = _owned(session, project_id, user)
+    project = _owned(session, project_id, device_id)
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(project, field, value)
@@ -105,8 +101,8 @@ def update_project(
 def delete_project(
     project_id: int,
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> None:
-    project = _owned(session, project_id, user)
+    project = _owned(session, project_id, device_id)
     session.delete(project)
     session.commit()

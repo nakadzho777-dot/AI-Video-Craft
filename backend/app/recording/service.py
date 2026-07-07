@@ -6,7 +6,8 @@ AIプロバイダーへプロンプトを投げ、応答 JSON を RecordingGuide
 from __future__ import annotations
 
 from ..ai.base import AIProvider, ChatMessage
-from ..ai.jsonutil import JsonExtractError, extract_json
+from ..ai.jsonutil import JsonExtractError
+from ..ai.structured import chat_json
 from ..logging_conf import get_logger
 from .models import GuideRequest, RecordingGuide
 from .prompts import SYSTEM_PROMPT, build_user_prompt
@@ -35,10 +36,10 @@ class RecordingGuideService:
                 content=build_user_prompt(topic, plan_summary, req.notes),
             ),
         ]
-        result = await self.provider.chat(messages, model=model, temperature=0.6)
-
         try:
-            data = extract_json(result.text)
+            data = await chat_json(
+                self.provider, messages, model=model, temperature=0.6
+            )
         except JsonExtractError as e:
             raise GuideParseError(str(e)) from e
 

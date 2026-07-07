@@ -14,6 +14,8 @@ export default function SettingsPage({
   const [models, setModels] = useState<Record<string, string[]>>({})
   const [usage, setUsage] = useState<UsageInfo | null>(null)
   const [devMode, setDevMode] = useState(false)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
 
   const reload = () => api.listProviders().then(setProviders)
 
@@ -21,7 +23,18 @@ export default function SettingsPage({
     reload()
     api.usage().then(setUsage).catch(() => {})
     api.health().then((h) => setDevMode(h.dev_mode)).catch(() => {})
+    window.videocraft?.appVersion().then(setAppVersion).catch(() => {})
   }, [])
+
+  async function checkUpdate() {
+    setUpdateMsg('確認中…')
+    const r = await window.videocraft?.update?.check()
+    if (!r || r.state === 'dev') setUpdateMsg('開発モードでは更新確認は無効です。')
+    else if (r.state === 'latest') setUpdateMsg('最新版を使用中です。')
+    else if (r.state === 'available') setUpdateMsg('新しいバージョンが見つかりました。ダウンロードします…')
+    else if (r.state === 'error') setUpdateMsg('更新確認に失敗しました。')
+    else setUpdateMsg(null)
+  }
 
   const isPro = usage?.plan === 'pro'
 
@@ -113,6 +126,24 @@ export default function SettingsPage({
           onPlanChanged?.()
         }}
       />
+
+      <section className="card">
+        <div className="provider-head">
+          <h2>🔄 アプリの更新</h2>
+          <span className="badge muted">
+            v{appVersion ?? '—'}
+          </span>
+        </div>
+        <p className="muted lic-intro">
+          起動時に自動で最新版を確認し、あればダウンロードして次回起動時に適用します。
+        </p>
+        <div className="row">
+          <button className="btn ghost" onClick={checkUpdate}>
+            今すぐ更新を確認
+          </button>
+        </div>
+        {updateMsg && <div className="lic-ok">{updateMsg}</div>}
+      </section>
 
       {providers.map((p) => (
         <section className="card" key={p.id}>

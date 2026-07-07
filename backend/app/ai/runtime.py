@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import httpx
+
 from . import registry
 from .base import AIProvider
 from .config_store import ai_config
@@ -34,7 +36,14 @@ async def resolve_model(
     default = ai_config.get(provider_id).default_model
     if default:
         return default
-    models = await provider.list_models()
+    try:
+        models = await provider.list_models()
+    except (httpx.TransportError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+        # モデル一覧取得のネットワーク失敗を分かりやすいエラーにする
+        raise RuntimeError(
+            "AIサービスに接続できませんでした（モデル一覧の取得に失敗）。"
+            "ネットワークを確認して再試行してください。"
+        ) from e
     if not models:
         raise RuntimeError("利用可能なモデルがありません")
     return models[0]

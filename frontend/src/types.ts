@@ -17,8 +17,17 @@ export interface Project {
   production_mode: ProductionMode
   material_mode: MaterialMode
   status: ProjectStatus
+  target_duration_sec: number
   created_at: string
   updated_at: string
+}
+
+export interface DurationSuggestion {
+  video_sec: number
+  short_sec: number
+  note: string
+  record_video_sec: number
+  record_short_sec: number
 }
 
 export interface ProviderInfo {
@@ -91,32 +100,13 @@ export interface BillingConfig {
   subscription_available: boolean
 }
 
-// ---- 認証 / ライセンス ----
-export interface UserInfo {
-  id: number
-  email: string
-  username: string
-  plan: 'free' | 'pro'
-}
-
-export interface AuthResult {
-  token: string
-  user: UserInfo
-}
-
-export interface LicenseDevice {
-  device_id: string
-  device_name: string
-  registered_at: string
-}
-
+// ---- ライセンス（PC単位）----
 export interface LicenseStatus {
   plan: 'free' | 'pro'
+  device_id: string
   has_license: boolean
   license_key: string | null
   source: string | null
-  max_devices: number | null
-  devices: LicenseDevice[]
   kind: 'perpetual' | 'subscription' | null
   expires_at: string | null
 }
@@ -219,9 +209,37 @@ export interface SuggestRequest {
   script?: string
   goal?: 'improve' | 'short' | 'auto'
   notes?: string
+  style?: string
   provider?: string
   model?: string
   project_id?: number | null
+}
+
+export interface StyleProfile {
+  creator: string
+  summary: string
+  pacing: string
+  cut_style: string
+  telop_style: string
+  sound_style: string
+  transitions: string
+  hook_style: string
+  keywords: string[]
+}
+
+export interface LearnStyleRequest {
+  reference_url?: string
+  creator?: string
+  notes?: string
+  provider?: string
+  model?: string
+}
+
+export interface LearnStyleResponse {
+  style: StyleProfile
+  provider: string
+  model: string
+  source: string
 }
 
 export interface SuggestResponse {
@@ -258,6 +276,7 @@ export interface PublishPack {
 export interface PublishRequest {
   topic?: string
   notes?: string
+  video_path?: string
   provider?: string
   model?: string
   project_id?: number | null
@@ -268,32 +287,209 @@ export interface PublishResponse {
   provider: string
   model: string
   saved_to_project: number | null
+  video_analysis?: string
 }
 
-// ---- 宣伝AI（開発者専用） ----
-export interface Article {
+
+// --- AI自動撮影（autopilot: ブラウザ自動操作＋AIナレーション）---
+export type AutopilotActionKind =
+  | 'goto'
+  | 'click'
+  | 'fill'
+  | 'press'
+  | 'scroll'
+  | 'wait'
+
+export interface AutopilotStep {
   title: string
-  slug: string
-  target_keyword: string
-  meta_description: string
-  keywords: string[]
-  outline: string[]
-  body_markdown: string
+  action: AutopilotActionKind
+  target: string
+  value: string
+  narration: string
 }
 
-export interface MarketingRequest {
-  topic: string
-  keywords?: string[]
-  count?: number
-  tone?: string
+export interface AutopilotPlan {
+  title: string
+  url: string
+  steps: AutopilotStep[]
+}
+
+export interface AutopilotPlanRequest {
+  url: string
+  urls?: string[]
+  topic?: string
+  notes?: string
+  instructions?: string
+  style?: 'normal' | 'kaisetsu' | 'jikkyou'
   provider?: string
   model?: string
 }
 
-export interface MarketingResponse {
-  articles: Article[]
+export interface AutopilotPlanResponse {
+  plan: AutopilotPlan
   provider: string
   model: string
-  requested: number
-  generated: number
+}
+
+export interface AutopilotRunResponse {
+  video_path: string
+  duration_sec: number
+  steps_run: number
+  warnings: string[]
+}
+
+export interface AutopilotVoice {
+  id: string
+  label: string
+}
+
+// --- AI自動撮影（デスクトップアプリ版）---
+export interface DesktopPlan {
+  title: string
+  window_title: string
+  steps: AutopilotStep[]
+}
+
+export interface DesktopPlanRequest {
+  window_title: string
+  topic?: string
+  notes?: string
+  instructions?: string
+  provider?: string
+  model?: string
+}
+
+export interface DesktopPlanResponse {
+  plan: DesktopPlan
+  provider: string
+  model: string
+}
+
+// --- ゆっくり解説（2キャラ掛け合い解説動画）---
+export interface YukkuriLine {
+  speaker: 'a' | 'b'
+  text: string
+}
+
+export interface YukkuriScript {
+  title: string
+  lines: YukkuriLine[]
+}
+
+export interface ThumbText {
+  text: string
+  x: number
+  y: number
+  size: number
+  color: string
+  stroke: string
+  stroke_width: number
+  bold: boolean
+  align: 'left' | 'center' | 'right'
+}
+
+export interface ThumbSpec {
+  width: number
+  height: number
+  base_kind: 'scene' | 'image' | 'gradient' | 'ai'
+  image_path: string
+  video_path: string
+  scene_time: number
+  color_a: string
+  color_b: string
+  darken: number
+  texts: ThumbText[]
+}
+
+export interface CharacterConfig {
+  single?: boolean
+  name_a: string
+  name_b: string
+  voice_a: string
+  voice_b: string
+  show_chars?: boolean
+  avatar_a?: string
+  avatar_b?: string
+}
+
+export interface YukkuriScriptRequest {
+  topic: string
+  notes?: string
+  instructions?: string
+  mode?: 'kaisetsu' | 'jikkyou'
+  target_sec?: number
+  speakers?: number
+  name_a?: string
+  name_b?: string
+  provider?: string
+  model?: string
+}
+
+export interface YukkuriScriptResponse {
+  script: YukkuriScript
+  provider: string
+  model: string
+}
+
+export interface YukkuriRenderResponse {
+  video_path: string
+  duration_sec: number
+  lines: number
+  voice_engine: string
+  warnings: string[]
+}
+
+// --- 動画編集（自動 / 手動）---
+export interface MaterialSource {
+  site: string
+  url: string
+}
+export interface MaterialSuggestion {
+  kind: string
+  kind_label: string
+  query: string
+  reason: string
+  sources: MaterialSource[]
+}
+export interface AutoEditPlan {
+  summary: string
+  remove_silence: boolean
+  cuts: CutSuggestion[]
+  telops: TelopSuggestion[]
+  materials: MaterialSuggestion[]
+}
+export interface AutoEditResponse {
+  output_path: string
+  duration_sec: number
+  original_sec: number
+  plan: AutoEditPlan
+  warnings: string[]
+}
+export interface EditCut {
+  start_sec: number
+  end_sec: number
+}
+export interface EditTelop {
+  time_sec: number
+  text: string
+  size?: number
+  color?: string
+  stroke?: string
+  x?: number
+  y?: number | null
+  bold?: boolean
+  anim?: 'none' | 'fade' | 'pop' | 'slide'
+}
+export interface EditOverlay {
+  image: string
+  start_sec: number
+  end_sec: number
+  position: string
+}
+export interface ManualEditResponse {
+  output_path: string
+  duration_sec: number
+}
+export interface MaterialSearchResponse {
+  materials: MaterialSuggestion[]
 }

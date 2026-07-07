@@ -54,6 +54,10 @@ class AIProvider(abc.ABC):
     display_name: str = ""
     #: 種別（設定 UI 出し分け用）
     kind: ProviderKind = ProviderKind.API_KEY
+    #: 画像（動画フレーム）解析に対応するか
+    supports_vision: bool = False
+    #: 画像生成（テキスト→画像）に対応するか
+    supports_image_gen: bool = False
 
     def __init__(self, *, api_key: str | None = None, base_url: str | None = None) -> None:
         self.api_key = api_key
@@ -82,3 +86,21 @@ class AIProvider(abc.ABC):
         temperature: float = 0.7,
     ) -> ChatResult:
         """チャット補完を実行する。"""
+
+    # --- 画像（動画フレーム）解析 ---
+    async def analyze_images(
+        self, prompt: str, images: list[bytes], *, model: str
+    ) -> str:
+        """画像群（JPEGバイト列）を解析して説明テキストを返す。
+
+        対応プロバイダー（Gemini 等）のみオーバーライドする。
+        """
+        raise NotImplementedError("このプロバイダーは画像解析に対応していません。")
+
+    # --- 画像生成（テキスト→画像）---
+    async def generate_image(self, prompt: str, *, model: str | None = None) -> bytes:
+        """プロンプトから画像(PNG/JPEGバイト列)を生成する。
+
+        対応プロバイダー（Gemini 等）のみオーバーライドする。
+        """
+        raise NotImplementedError("このプロバイダーは画像生成に対応していません。")

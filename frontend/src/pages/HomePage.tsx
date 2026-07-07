@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { startWorkflow } from '../handoff'
 import type { MaterialMode, ProductionMode, Project } from '../types'
 
 const PRODUCTION_MODES: { value: ProductionMode; label: string; desc: string }[] = [
@@ -32,13 +33,15 @@ export default function HomePage() {
     setLoading(true)
     setError(null)
     try {
-      await api.createProject({
+      const created = await api.createProject({
         title: title.trim(),
         production_mode: production,
         material_mode: material,
       })
       setTitle('')
       await reload()
+      // 作成後、企画→録画→編集→投稿 のガイド付きワークフローを開始
+      startWorkflow(created.id)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -122,9 +125,17 @@ export default function HomePage() {
                     <span className="status-tag">{p.status}</span>
                   </div>
                 </div>
-                <button className="btn ghost" onClick={() => remove(p.id)}>
-                  削除
-                </button>
+                <div className="row" style={{ gap: 8 }}>
+                  <button
+                    className="btn primary sm"
+                    onClick={() => startWorkflow(p.id)}
+                  >
+                    ▶ 制作を進める
+                  </button>
+                  <button className="btn ghost sm" onClick={() => remove(p.id)}>
+                    削除
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

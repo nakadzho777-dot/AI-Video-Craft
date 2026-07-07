@@ -1,5 +1,6 @@
 // フレームレスウィンドウ用のカスタムタイトルバー。
 // 中央のドラッグ領域でウィンドウ移動、右側で最小化/最大化/閉じる。
+import Logo from './Logo'
 
 const ctl = () => window.videocraft?.window
 
@@ -7,7 +8,9 @@ export default function TitleBar() {
   return (
     <div className="titlebar">
       <div className="titlebar-drag">
-        <span className="titlebar-logo">🎬</span>
+        <span className="titlebar-logo">
+          <Logo size={18} />
+        </span>
         <span className="titlebar-title">AI VideoCraft</span>
         <span className="titlebar-tag">Studio</span>
       </div>

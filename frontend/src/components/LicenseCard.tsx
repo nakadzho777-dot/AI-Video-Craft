@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { api, getDeviceId } from '../api/client'
 import type {
   BillingConfig,
   KeygenResult,
@@ -26,8 +26,8 @@ export default function LicenseCard({
   const [error, setError] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
-  // 販売者: 署名発行
-  const [signEmail, setSignEmail] = useState('')
+  // 販売者: 署名発行（購入者のデバイスIDに紐づけ）
+  const [signDevice, setSignDevice] = useState('')
   const [signKind, setSignKind] = useState<'perpetual' | 'subscription'>('perpetual')
   const [signDays, setSignDays] = useState(365)
   const [signedToken, setSignedToken] = useState('')
@@ -38,16 +38,85 @@ export default function LicenseCard({
 
   // 買い手: 購入リクエスト / 決済
   const [buyPlan, setBuyPlan] = useState<'perpetual' | 'subscription'>('perpetual')
+  const [buyContact, setBuyContact] = useState('')
   const [buyMsg, setBuyMsg] = useState<string | null>(null)
   const [billing, setBilling] = useState<BillingConfig | null>(null)
+
+  // Stripe決済ページ等は既定ブラウザで開く（アプリ内遷移させない）
+  function openExternal(url: string) {
+    if (window.videocraft?.openExternal) window.videocraft.openExternal(url)
+    else window.open(url, '_blank', 'noopener')
+  }
+
+  // 直近の決済セッション（ポーリング/手動確認で使う）
+  const [pendingSession, setPendingSession] = useState<string | null>(null)
+  const [verifying, setVerifying] = useState(false)
+
+  // 決済が完了したか確認する。session_id があれば Stripe に直接確認して
+  // （Webhook無しでも）Pro を発行する。戻り値: Pro になったか。
+  async function checkPro(sessionId?: string | null): Promise<boolean> {
+    try {
+      if (sessionId) {
+        const v = await api.verifyCheckout(sessionId)
+        if (v.plan === 'pro') {
+          const s = await api.licenseStatus()
+          setStatus(s)
+          return true
+        }
+        return false
+      }
+      const s = await api.licenseStatus()
+      setStatus(s)
+      return s.plan === 'pro'
+    } catch {
+      return false
+    }
+  }
+
+  // 決済完了を検知するまで一定間隔でポーリング
+  function pollForPro(sessionId?: string | null) {
+    let tries = 0
+    const timer = setInterval(async () => {
+      tries += 1
+      if (await checkPro(sessionId)) {
+        setBuyMsg('決済を確認しました。Pro版が有効になりました。')
+        setPendingSession(null)
+        onChanged?.()
+        clearInterval(timer)
+        return
+      }
+      if (tries >= 45) clearInterval(timer) // 最大 ~3分
+    }, 4000)
+  }
+
+  // 手動での「支払いを確認」（ポーリングが時間切れした場合の保険）
+  async function verifyNow() {
+    if (verifying) return
+    setVerifying(true)
+    setError(null)
+    try {
+      const done = await checkPro(pendingSession)
+      if (done) {
+        setBuyMsg('決済を確認しました。Pro版が有効になりました。')
+        setPendingSession(null)
+        onChanged?.()
+      } else {
+        setBuyMsg('まだ決済が確認できません。支払い完了後、少し待ってからもう一度お試しください。')
+      }
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   async function checkout() {
     setBuyMsg(null)
     setError(null)
     try {
       const r = await api.checkout(buyPlan)
-      window.location.href = r.checkout_url // 決済ページへ
-      setBuyMsg('決済ページを開きました。支払い後、自動的にPro版になります。')
+      setPendingSession(r.session_id)
+      openExternal(r.checkout_url) // ブラウザで決済ページを開く
+      setBuyMsg('ブラウザで決済ページを開きました。支払いが完了するとこの画面が自動的にPro版に切り替わります。')
+      pollForPro(r.session_id)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -57,12 +126,12 @@ export default function LicenseCard({
     setBuyMsg(null)
     setError(null)
     try {
-      const r = await api.purchaseRequest(buyPlan)
+      const r = await api.purchaseRequest(buyPlan, buyContact.trim())
       if (r.sent) {
         setBuyMsg(`販売者（${r.notify_email}）に購入リクエストを送信しました。ライセンスが届くまでお待ちください。`)
       } else {
         // SMTP未設定: 買い手のメールソフトを開く
-        window.location.href = r.mailto
+        openExternal(r.mailto)
         setBuyMsg(`メールソフトを開きました。宛先（${r.notify_email}）にそのまま送信してください。`)
       }
     } catch (e) {
@@ -98,7 +167,7 @@ export default function LicenseCard({
   async function sign() {
     setError(null)
     try {
-      const r = await api.signLicense(signEmail.trim(), signKind, signDays)
+      const r = await api.signLicense(signDevice.trim(), signKind, signDays)
       setSignedToken(r.license_token)
     } catch (e) {
       setError((e as Error).message)
@@ -128,24 +197,9 @@ export default function LicenseCard({
                 : '無期限'}
             </span>
           </div>
-          {status.devices.length > 0 && (
-            <ul className="device-list">
-              {status.devices.map((d) => (
-                <li key={d.device_id}>
-                  <span>💻 {d.device_name || d.device_id.slice(0, 8)}</span>
-                  <button
-                    className="btn ghost sm"
-                    onClick={async () => {
-                      setStatus(await api.releaseDevice(d.device_id))
-                      onChanged?.()
-                    }}
-                  >
-                    登録解除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <p className="muted lic-note">
+            🖥️ このPC（{getDeviceId().slice(0, 8)}）で有効です。
+          </p>
           {status.kind === 'subscription' && (
             <p className="muted lic-note">
               期限が切れると自動的にFreeに戻ります。更新版のライセンスで再有効化してください。
@@ -175,11 +229,36 @@ export default function LicenseCard({
                 </button>
               )}
             </div>
+            {!billing?.stripe_enabled && (
+              <>
+                <div className="field-label">連絡先（返信用・任意）</div>
+                <input
+                  className="input"
+                  placeholder="メールアドレス等（ライセンスの受け取り先）"
+                  value={buyContact}
+                  onChange={(e) => setBuyContact(e.target.value)}
+                />
+                <div className="device-box">
+                  <span className="muted">このPCのID</span>
+                  <code className="device-code">{getDeviceId()}</code>
+                  <CopyButton text={getDeviceId()} />
+                </div>
+              </>
+            )}
             {buyMsg && <div className="lic-ok">{buyMsg}</div>}
+            {pendingSession && billing?.stripe_enabled && (
+              <button
+                className="btn ghost buy-verify"
+                onClick={verifyNow}
+                disabled={verifying}
+              >
+                {verifying ? '確認中…' : '支払いが完了したのに切り替わらない場合はこちら（支払いを確認）'}
+              </button>
+            )}
             <p className="muted lic-note">
               {billing?.stripe_enabled
-                ? '決済が完了すると自動的にPro版が有効になります。'
-                : '販売者に通知が届きます。入金確認後、ライセンス（署名トークン）がメールで届きます。'}
+                ? '決済が完了すると、このPCで自動的にPro版が有効になります。'
+                : 'このPCのIDと一緒に販売者へ通知が届きます。入金確認後、このPC専用のライセンスが届きます。'}
             </p>
           </div>
 
@@ -217,12 +296,12 @@ export default function LicenseCard({
           </div>
           <div className="plan-form-grid">
             <label>
-              購入者のメール
+              購入者のデバイスID
               <input
                 className="input"
-                placeholder="buyer@example.com"
-                value={signEmail}
-                onChange={(e) => setSignEmail(e.target.value)}
+                placeholder="購入リクエストに記載のデバイスID"
+                value={signDevice}
+                onChange={(e) => setSignDevice(e.target.value)}
               />
             </label>
             <label>

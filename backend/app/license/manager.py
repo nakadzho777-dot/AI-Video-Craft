@@ -1,9 +1,9 @@
 """ライセンス管理.
 
 Free: ライセンス不要 / 各種制限あり
-Pro : ライセンスキー引き換え / 1ライセンス2台まで
+Pro : ライセンス有効化 / PC（デバイス）単位
 
-プラン・制限は **アカウント単位** で解決する。
+プラン・制限は **PC（デバイス）単位** で解決する。
 制限値を一元管理し、機能側は Limits を参照するだけにする。
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from datetime import timezone
 
 from sqlmodel import Session, select
 
-from ..db.models import License, User
+from ..db.models import License
 from .clock import effective_now
 
 
@@ -68,10 +68,10 @@ def license_is_active(lic: License, session: Session) -> bool:
     return True  # 買い切り / 期限なし
 
 
-def plan_for_user(user: User, session: Session) -> Plan:
-    """アカウントが有効なライセンスを持っていれば Pro（サブスク失効はFree）。"""
+def plan_for_device(device_id: str, session: Session) -> Plan:
+    """このPCが有効なライセンスを持っていれば Pro（サブスク失効はFree）。"""
     lic = session.exec(
-        select(License).where(License.redeemed_by_user_id == user.id)
+        select(License).where(License.device_id == device_id)
     ).first()
     if lic and license_is_active(lic, session):
         return Plan.PRO
@@ -92,5 +92,9 @@ def subscription_days_remaining(lic: License, session: Session) -> int | None:
     return math.ceil(delta.total_seconds() / 86400)
 
 
-def limits_for_user(user: User, session: Session) -> Limits:
-    return PRO_LIMITS if plan_for_user(user, session) is Plan.PRO else FREE_LIMITS
+def limits_for_device(device_id: str, session: Session) -> Limits:
+    return (
+        PRO_LIMITS
+        if plan_for_device(device_id, session) is Plan.PRO
+        else FREE_LIMITS
+    )

@@ -37,16 +37,17 @@ async def create_checkout_session(
         "mode": mode,
         "line_items[0][price]": price_id,
         "line_items[0][quantity]": "1",
-        "customer_email": customer_email,
         "client_reference_id": client_reference_id,
-        "metadata[user_id]": client_reference_id,
+        "metadata[device_id]": client_reference_id,
         "metadata[plan]": plan,
         "success_url": success_url,
         "cancel_url": cancel_url,
     }
+    if customer_email:
+        data["customer_email"] = customer_email
     # サブスクは subscription 側にも metadata を載せて後続イベントで参照可能に
     if mode == "subscription":
-        data["subscription_data[metadata][user_id]"] = client_reference_id
+        data["subscription_data[metadata][device_id]"] = client_reference_id
         data["subscription_data[metadata][plan]"] = plan
 
     async with httpx.AsyncClient(timeout=20) as client:
@@ -55,6 +56,17 @@ async def create_checkout_session(
         )
     if resp.status_code >= 400:
         raise StripeError(f"Stripe checkout 作成に失敗: {resp.text}")
+    return resp.json()
+
+
+async def get_checkout_session(session_id: str) -> dict:
+    """Checkout セッションの現在状態を取得する（Webhookに頼らず決済確認する用）。"""
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{_API}/checkout/sessions/{session_id}", headers=_auth()
+        )
+    if resp.status_code >= 400:
+        raise StripeError(f"Stripe セッション取得に失敗: {resp.text}")
     return resp.json()
 
 

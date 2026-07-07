@@ -12,15 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from ..ai.runtime import build_provider, resolve_model
-from ..auth.deps import get_current_user
+from ..deps import get_device_id
 from ..db.database import get_session
-from ..db.models import Project, ProjectStatus, User
+from ..db.models import Project, ProjectStatus
 from ..license.guard import (
     enforce_ai_quota,
     enforce_provider_allowed,
     record_ai_run,
 )
-from ..license.manager import limits_for_user
+from ..license.manager import limits_for_device
 from ..logging_conf import get_logger
 from ..recording.models import GuideRequest, GuideResponse
 from ..recording.prompts import summarize_plan
@@ -34,16 +34,16 @@ router = APIRouter(prefix="/recording", tags=["recording"])
 async def generate_guide(
     req: GuideRequest,
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> GuideResponse:
-    limits = limits_for_user(user, session)
+    limits = limits_for_device(device_id, session)
     # 1) プロジェクトがあれば企画を読み込み、文脈にする
     project: Project | None = None
     plan_summary = ""
     topic = req.topic
     if req.project_id is not None:
         project = session.get(Project, req.project_id)
-        if not project or project.owner_user_id != user.id:
+        if not project or project.device_id != device_id:
             raise HTTPException(404, "プロジェクトが見つかりません")
         if project.plan_json:
             try:
@@ -65,7 +65,7 @@ async def generate_guide(
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
     enforce_provider_allowed(limits, provider)
-    enforce_ai_quota(limits, session, user.id)
+    enforce_ai_quota(limits, session, device_id)
     try:
         model = await resolve_model(provider, provider_id, req.model)
     except RuntimeError as e:
@@ -82,7 +82,7 @@ async def generate_guide(
         logger.exception("guide generation failed")
         detail = str(e) or type(e).__name__
         raise HTTPException(502, f"録画ガイド生成に失敗しました: {detail}") from e
-    record_ai_run(session, user.id)
+    record_ai_run(session, device_id)
 
     # 4) 任意でプロジェクトへ保存
     saved: int | None = None

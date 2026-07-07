@@ -1,0 +1,54 @@
+import { useId } from 'react'
+
+// AI VideoCraft のロゴマーク（SVG・どのサイズでも鮮明）。
+export default function Logo({ size = 40 }: { size?: number }) {
+  const id = useId().replace(/:/g, '')
+  const bg = `${id}-bg`
+  const gloss = `${id}-gloss`
+  const soft = `${id}-soft`
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <defs>
+        <linearGradient id={bg} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#b06bff" />
+          <stop offset="0.52" stopColor="#6366f1" />
+          <stop offset="1" stopColor="#2f7bf6" />
+        </linearGradient>
+        <linearGradient id={gloss} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ffffff" stopOpacity="0.28" />
+          <stop offset="0.5" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+        <filter id={soft} x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow
+            dx="0"
+            dy="10"
+            stdDeviation="18"
+            floodColor="#1e1b4b"
+            floodOpacity="0.45"
+          />
+        </filter>
+      </defs>
+      <rect width="512" height="512" rx="116" fill={`url(#${bg})`} />
+      <rect width="512" height="512" rx="116" fill={`url(#${gloss})`} />
+      <path
+        d="M196 150 L372 256 L196 362 Z"
+        fill="#ffffff"
+        stroke="#ffffff"
+        strokeWidth="26"
+        strokeLinejoin="round"
+        filter={`url(#${soft})`}
+      />
+      <path
+        d="M392 96 c6 26 14 34 40 40 c-26 6 -34 14 -40 40 c-6 -26 -14 -34 -40 -40 c26 -6 34 -14 40 -40 z"
+        fill="#a5f3fc"
+      />
+      <circle cx="120" cy="404" r="12" fill="#a5f3fc" opacity="0.9" />
+    </svg>
+  )
+}

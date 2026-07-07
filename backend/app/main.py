@@ -17,15 +17,11 @@ from .db.database import init_db
 from .logging_conf import get_logger, setup_logging
 from .routers import (
     ai,
-    auth,
     billing,
-    editing,
     health,
     license,
-    marketing,
     planning,
     projects,
-    publishing,
     recording,
     settings,
 )
@@ -59,18 +55,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- コア（ライセンス/決済/企画など・依存が軽い＝サーバでも動く）---
 app.include_router(health.router)
-app.include_router(auth.router)
 app.include_router(license.router)
 app.include_router(billing.router)
 app.include_router(projects.router)
 app.include_router(ai.router)
 app.include_router(planning.router)
 app.include_router(recording.router)
-app.include_router(editing.router)
-app.include_router(publishing.router)
-app.include_router(marketing.router)
 app.include_router(settings.router)
+
+# --- デスクトップ専用（録画/自動撮影/ゆっくり/編集/投稿サムネ）---
+# これらは Pillow / edge-tts / playwright / pywinauto など重い・OS依存の依存を使う。
+# ライセンス/決済用途のサーバ(Render/Linux)には依存が無く import に失敗し得るため、
+# 失敗しても起動を止めず、その機能だけ無効化する（ローカルWindowsでは全て有効）。
+import importlib
+
+_startup_logger = get_logger("startup")
+for _name in ("autopilot", "yukkuri", "editing", "publishing"):
+    try:
+        _mod = importlib.import_module(f"{__package__}.routers.{_name}")
+        app.include_router(_mod.router)
+    except Exception as _e:  # noqa: BLE001
+        _startup_logger.warning(
+            "デスクトップ専用ルータ '%s' は読み込めませんでした"
+            "（サーバ環境では想定内・その機能は無効）: %s",
+            _name,
+            _e,
+        )
 
 
 def main() -> None:

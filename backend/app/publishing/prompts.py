@@ -32,8 +32,15 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_user_prompt(topic: str, plan_summary: str, notes: str) -> str:
-    lines = [f"動画テーマ: {topic}"]
+def build_user_prompt(
+    topic: str, plan_summary: str, notes: str, video_analysis: str = ""
+) -> str:
+    lines = [f"動画テーマ: {topic or '（動画の内容から判断）'}"]
+    if video_analysis.strip():
+        lines.append(
+            "AIが確認した実際の動画内容（これを最優先で反映すること）:\n"
+            + video_analysis.strip()
+        )
     if plan_summary:
         lines.append("参考にする企画:\n" + plan_summary)
     if notes.strip():

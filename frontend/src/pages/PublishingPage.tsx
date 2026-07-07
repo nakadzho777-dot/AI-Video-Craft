@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { handoff } from '../handoff'
 import type { Project, ProviderInfo, PublishResponse } from '../types'
 import CopyButton from '../components/CopyButton'
+import ThumbnailStudio from '../components/ThumbnailStudio'
 
 export default function PublishingPage() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -13,6 +15,14 @@ export default function PublishingPage() {
   const [projectId, setProjectId] = useState<number | ''>('')
   const [topic, setTopic] = useState('')
   const [notes, setNotes] = useState('')
+  const [videoPath, setVideoPath] = useState('')
+  // 動画用 / ショート用（ショート以外でサムネ作業場を出す）
+  const [videoType, setVideoType] = useState<'long' | 'short'>('long')
+
+  async function browseVideo() {
+    const p = await window.videocraft?.openVideoDialog?.()
+    if (p) setVideoPath(p)
+  }
 
   const [result, setResult] = useState<PublishResponse | null>(null)
   const [busy, setBusy] = useState(false)
@@ -25,6 +35,11 @@ export default function PublishingPage() {
       if (first) setProvider(first.id)
     })
     api.listProjects().then(setProjects)
+    // 編集支援から「投稿支援へ送る」で渡された動画を読み込む
+    if (handoff.publishingVideo) {
+      setVideoPath(handoff.publishingVideo)
+      handoff.publishingVideo = undefined
+    }
   }, [])
 
   useEffect(() => {
@@ -41,8 +56,8 @@ export default function PublishingPage() {
 
   async function generate() {
     if (busy) return
-    if (projectId === '' && !topic.trim()) {
-      setError('プロジェクトを選ぶか、テーマを入力してください。')
+    if (projectId === '' && !topic.trim() && !videoPath.trim()) {
+      setError('プロジェクト・テーマ・動画のいずれかを指定してください。')
       return
     }
     setBusy(true)
@@ -52,6 +67,7 @@ export default function PublishingPage() {
       const res = await api.generatePublish({
         topic: topic.trim() || undefined,
         notes: notes.trim() || undefined,
+        video_path: videoPath.trim() || undefined,
         provider,
         model: model || undefined,
         project_id: projectId === '' ? null : projectId,
@@ -130,11 +146,69 @@ export default function PublishingPage() {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
+
+        {/* 動画を読み込むとAIが内容を確認して反映 */}
+        <div className="field-label">🎞️ 動画を読み込む（AIが内容を確認します・任意）</div>
+        <div className="row">
+          <input
+            className="input"
+            placeholder="動画ファイルのパス"
+            value={videoPath}
+            onChange={(e) => setVideoPath(e.target.value)}
+          />
+          <button className="btn ghost" onClick={browseVideo}>
+            参照…
+          </button>
+          {videoPath && (
+            <button className="btn ghost sm" onClick={() => setVideoPath('')}>
+              ✕
+            </button>
+          )}
+        </div>
+        <p className="muted vol-hint">
+          動画を入れると、AIが実際の映像を見て内容を要約し、それに合った投稿文を作ります（Gemini等の画像対応プロバイダーが必要）。
+        </p>
+
+        {/* 動画の種類（ショート以外はサムネ作業場を表示）*/}
+        <div className="field-label">動画の種類</div>
+        <div className="ap-mode">
+          <button
+            className={`ap-mode-btn ${videoType === 'long' ? 'active' : ''}`}
+            onClick={() => setVideoType('long')}
+          >
+            🎬 動画用（サムネあり）
+          </button>
+          <button
+            className={`ap-mode-btn ${videoType === 'short' ? 'active' : ''}`}
+            onClick={() => setVideoType('short')}
+          >
+            📱 ショート用
+          </button>
+        </div>
+
         {error && <div className="banner error">{error}</div>}
         <button className="btn primary" onClick={generate} disabled={busy}>
-          {busy ? '生成中…' : '投稿テキストを生成'}
+          {busy ? (videoPath ? '動画を確認して生成中…' : '生成中…') : '投稿テキストを生成'}
         </button>
       </section>
+
+      {result?.video_analysis && (
+        <section className="card autostudio-card">
+          <h2>🔎 AIが確認した動画内容</h2>
+          <p className="pub-analysis">{result.video_analysis}</p>
+        </section>
+      )}
+
+      {videoType === 'long' && (
+        <ThumbnailStudio
+          videoPath={videoPath}
+          topic={topic}
+          notes={notes}
+          videoAnalysis={result?.video_analysis ?? ''}
+          provider={provider}
+          model={model}
+        />
+      )}
 
       {pack && (
         <section className="pub-result">

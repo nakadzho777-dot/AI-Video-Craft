@@ -45,9 +45,12 @@ def _migrate_add_missing_columns() -> None:
                 continue
             col_type = column.type.compile(engine.dialect)
             # 既存行を有効な値で埋めるため型に応じた既定値を付与する
-            if "CHAR" in col_type.upper() or "TEXT" in col_type.upper():
+            t = col_type.upper()
+            if "CHAR" in t or "TEXT" in t or "CLOB" in t:
                 default = "DEFAULT ''"
-            elif "INT" in col_type.upper():
+            elif any(k in t for k in ("INT", "FLOAT", "REAL", "NUMERIC", "DOUBLE", "DECIMAL")):
+                # 数値列は 0 を既定に（未指定だと既存行が NULL になり
+                # レスポンス検証(float必須)で 500 になる不具合を防ぐ）
                 default = "DEFAULT 0"
             else:
                 default = ""
@@ -58,6 +61,40 @@ def _migrate_add_missing_columns() -> None:
             with engine.begin() as conn:
                 conn.execute(text(ddl))
             logger.info("Migrated: added column %s.%s", table_name, column.name)
+
+    _backfill_null_numeric_columns(inspector)
+
+
+def _backfill_null_numeric_columns(inspector) -> None:
+    """既に NULL で入ってしまった数値列を 0 に埋め直す（過去のマイグレーション救済）。
+
+    以前は数値列に DEFAULT を付けずに ADD COLUMN していたため、既存行が
+    NULL のまま残り GET /projects などが 500 になっていた。起動時に修復する。
+    """
+    for table_name, table in SQLModel.metadata.tables.items():
+        for column in table.columns:
+            # 一部の型は .python_type が NotImplementedError を投げるため広く捕捉
+            try:
+                is_num = column.type.python_type in (int, float)
+            except Exception:
+                is_num = False
+            if not is_num or column.primary_key:
+                continue
+            try:
+                with engine.begin() as conn:
+                    res = conn.execute(
+                        text(
+                            f'UPDATE "{table_name}" SET "{column.name}" = 0 '
+                            f'WHERE "{column.name}" IS NULL'
+                        )
+                    )
+                if res.rowcount:
+                    logger.info(
+                        "Backfilled %d NULL(s) in %s.%s",
+                        res.rowcount, table_name, column.name,
+                    )
+            except Exception as e:  # 修復に失敗しても起動は続ける
+                logger.warning("Backfill failed for %s.%s: %s", table_name, column.name, e)
 
 
 def get_session() -> Iterator[Session]:

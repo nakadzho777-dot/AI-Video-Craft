@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session
 
 from ..config import get_settings
-from ..db.models import License, User
+from ..db.models import License
 from ..logging_conf import get_logger
 from .keys import get_private_key
 from .signing import sign_license
@@ -20,8 +20,8 @@ from .signing import sign_license
 logger = get_logger(__name__)
 
 
-def issue_offline_token(session: Session, user: User, lic: License) -> str | None:
-    """ライセンスに紐づく署名トークンを発行し保存する。
+def issue_offline_token(session: Session, device_id: str, lic: License) -> str | None:
+    """ライセンス(このPC)に紐づく署名トークンを発行し保存する。
 
     秘密鍵が無い環境（配布ビルド）では None（発行しない）。
     exp はサブスクの失効日時、買い切りは無期限。
@@ -38,7 +38,7 @@ def issue_offline_token(session: Session, user: User, lic: License) -> str | Non
         exp = int(e.timestamp())
 
     payload = {
-        "email": user.email.strip().lower(),
+        "device": device_id,
         "plan": "pro",
         "kind": lic.kind,
         "iat": int(datetime.now(timezone.utc).timestamp()),

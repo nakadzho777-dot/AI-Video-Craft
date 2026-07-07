@@ -40,7 +40,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_user_prompt(req: PlanRequest) -> str:
+def build_user_prompt(req: PlanRequest, previous: list[str] | None = None) -> str:
     fmt = req.format
     if fmt == "auto":
         fmt_line = "フォーマット(short/long)はテーマに最適な方をあなたが選ぶ。"
@@ -61,5 +61,20 @@ def build_user_prompt(req: PlanRequest) -> str:
     ]
     if req.notes.strip():
         lines.append(f"追加の要望: {req.notes.strip()}")
+
+    # 同じプロジェクト・同じテーマで過去に決定した企画がある場合は、
+    # それらと重複しない別バリエーションを作らせる。
+    if previous:
+        lines.append(
+            "\n【重要】このテーマでは既に次の企画を作成・決定済みです（重複禁止）:"
+        )
+        for i, p in enumerate(previous, 1):
+            lines.append(f"  過去案{i}: {p}")
+        lines.append(
+            "上記とは焦点・切り口・ターゲット視聴者・構成の順序を大きく変え、"
+            "できるだけ新鮮で別方向のバリエーションにしてください。"
+            "同じタイトルや同じ掴みは避けること。"
+        )
+
     lines.append("上記を踏まえ、JSON で企画を出力してください。")
     return "\n".join(lines)

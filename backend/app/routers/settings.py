@@ -10,15 +10,14 @@ from sqlmodel import Session
 
 from ..ai import registry
 from ..ai.config_store import ai_config
-from ..auth.deps import get_current_user
 from ..db.database import get_session
-from ..db.models import User
+from ..deps import get_device_id
 from ..license.manager import (
-    limits_for_user,
-    plan_for_user,
+    limits_for_device,
+    plan_for_device,
     subscription_days_remaining,
 )
-from ..license.service import get_user_license
+from ..license.service import get_device_license
 from ..license.usage import get_ai_runs_today
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -56,22 +55,22 @@ def set_default_model(provider_id: str, payload: DefaultModelIn) -> dict:
 def set_default_provider(payload: DefaultProviderIn) -> dict:
     if payload.provider not in registry.available_ids():
         raise HTTPException(404, f"Unknown provider '{payload.provider}'")
-    ai_config.default_provider = payload.provider
+    ai_config.set_default_provider(payload.provider)
     return {"ok": True, "default_provider": payload.provider}
 
 
 @router.get("/usage")
 def get_usage(
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> dict:
-    """現在のプラン・制限・本日のAI利用状況を返す（アカウント単位）。"""
-    plan = plan_for_user(user, session)
-    limits = limits_for_user(user, session)
-    used = get_ai_runs_today(session, user.id)
+    """現在のプラン・制限・本日のAI利用状況を返す（PC/デバイス単位）。"""
+    plan = plan_for_device(device_id, session)
+    limits = limits_for_device(device_id, session)
+    used = get_ai_runs_today(session, device_id)
     limit = limits.ai_runs_per_day
 
-    lic = get_user_license(session, user)
+    lic = get_device_license(session, device_id)
     lic_kind = lic.kind if lic else None
     lic_exp = lic.expires_at.isoformat() if lic and lic.expires_at else None
     days_left = (

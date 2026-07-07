@@ -13,11 +13,10 @@ from ..ai import registry
 from ..ai.base import ChatMessage
 from ..ai.config_store import ai_config
 from ..ai.runtime import build_provider, resolve_model
-from ..auth.deps import get_current_user
+from ..deps import get_device_id
 from ..db.database import get_session
-from ..db.models import User
 from ..license.guard import enforce_provider_allowed
-from ..license.manager import limits_for_user
+from ..license.manager import limits_for_device
 from ..logging_conf import get_logger
 
 logger = get_logger(__name__)
@@ -97,14 +96,14 @@ async def check_available(provider_id: str) -> dict:
 async def chat(
     req: ChatRequest,
     session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
+    device_id: str = Depends(get_device_id),
 ) -> ChatResponse:
     try:
         provider_id, provider = build_provider(req.provider)
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
     # Free版は無料AI（ローカル）のみ。チャットにも適用する。
-    enforce_provider_allowed(limits_for_user(user, session), provider)
+    enforce_provider_allowed(limits_for_device(device_id, session), provider)
 
     try:
         model = await resolve_model(provider, provider_id, req.model)

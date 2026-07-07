@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +20,23 @@ from ..config import get_settings
 from ..logging_conf import get_logger
 
 logger = get_logger(__name__)
+
+
+def _resolve_ffmpeg(path: str | None) -> str:
+    """使用する ffmpeg 実行ファイルを決める。
+
+    指定パス or PATH 上に ffmpeg があればそれを使い、無ければ同梱の
+    imageio-ffmpeg のバイナリにフォールバックする（システムに ffmpeg が
+    無くても動画の読み込み・処理ができるようにする）。
+    """
+    if path and (os.path.exists(path) or shutil.which(path)):
+        return path
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return path or "ffmpeg"
 
 
 class FFmpegError(RuntimeError):
@@ -48,9 +67,12 @@ class FFmpegService:
     """FFmpeg / FFprobe をサブプロセスで呼び出すサービス。"""
 
     def __init__(self, ffmpeg_path: str | None = None) -> None:
-        self.ffmpeg_path = ffmpeg_path or get_settings().ffmpeg_path
-        # ffprobe は ffmpeg と同ディレクトリ or PATH 上を想定
-        self.ffprobe_path = self.ffmpeg_path.replace("ffmpeg", "ffprobe")
+        self.ffmpeg_path = _resolve_ffmpeg(ffmpeg_path or get_settings().ffmpeg_path)
+        # ffprobe は ffmpeg と同ディレクトリ or PATH 上を想定（無ければ ffmpeg -i で代替）
+        probe = self.ffmpeg_path.replace("ffmpeg", "ffprobe")
+        self.ffprobe_path = (
+            probe if (os.path.exists(probe) or shutil.which("ffprobe")) else ""
+        )
 
     async def _run(self, args: list[str]) -> tuple[int, bytes, bytes]:
         proc = await asyncio.create_subprocess_exec(
@@ -69,28 +91,54 @@ class FFmpegService:
             return False
 
     async def probe(self, input_path: str | Path) -> MediaInfo:
-        """メディア情報を取得する（ffprobe）。"""
-        args = [
-            self.ffprobe_path,
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            "-show_streams",
-            str(input_path),
-        ]
-        code, out, err = await self._run(args)
-        if code != 0:
-            raise FFmpegError(err.decode("utf-8", "ignore"))
-        data = json.loads(out.decode("utf-8", "ignore"))
+        """メディア情報を取得する。ffprobe があれば使い、無ければ ffmpeg -i を解析。"""
+        if self.ffprobe_path:
+            args = [
+                self.ffprobe_path,
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                "-show_streams",
+                str(input_path),
+            ]
+            code, out, err = await self._run(args)
+            if code == 0:
+                data = json.loads(out.decode("utf-8", "ignore"))
+                duration = float(data.get("format", {}).get("duration", 0.0))
+                width = height = None
+                for stream in data.get("streams", []):
+                    if stream.get("codec_type") == "video":
+                        width = stream.get("width")
+                        height = stream.get("height")
+                        break
+                return MediaInfo(
+                    duration_sec=duration, width=width, height=height, raw=data
+                )
+        return await self._probe_via_ffmpeg(input_path)
 
-        duration = float(data.get("format", {}).get("duration", 0.0))
+    async def _probe_via_ffmpeg(self, input_path: str | Path) -> MediaInfo:
+        """ffprobe が無い環境用: `ffmpeg -i` の出力から尺・解像度を解析する。"""
+        # 出力を指定しないと ffmpeg は非ゼロ終了するが、情報は stderr に出る
+        _, _, err = await self._run(
+            [self.ffmpeg_path, "-hide_banner", "-i", str(input_path)]
+        )
+        stderr = err.decode("utf-8", "ignore")
+        duration = 0.0
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
+        if m:
+            h, mn, s = m.groups()
+            duration = int(h) * 3600 + int(mn) * 60 + float(s)
         width = height = None
-        for stream in data.get("streams", []):
-            if stream.get("codec_type") == "video":
-                width = stream.get("width")
-                height = stream.get("height")
-                break
-        return MediaInfo(duration_sec=duration, width=width, height=height, raw=data)
+        vm = re.search(r"Video:.*?\s(\d{2,5})x(\d{2,5})", stderr)
+        if vm:
+            width, height = int(vm.group(1)), int(vm.group(2))
+        if duration <= 0 and width is None:
+            raise FFmpegError(
+                "動画情報を取得できませんでした:\n" + stderr[-300:]
+            )
+        return MediaInfo(
+            duration_sec=duration, width=width, height=height, raw={}
+        )
 
     async def cut(
         self,
@@ -182,12 +230,12 @@ class FFmpegService:
         width: int = 1080,
         height: int = 1920,
     ) -> Path:
-        """縦動画化する（9:16 に中央クロップ + スケール）。"""
+        """縦動画化する（9:16）。横画面全体が入るよう縮小し、上下に余白を付ける。"""
         output_path = Path(output_path)
-        # 出力アスペクトに合わせて中央を埋め、はみ出しをクロップする
+        # 横画面の全体を9:16に収め（切らない）、上下を黒余白でパディングして中央配置
         vf = (
-            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height}"
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
         )
         args = [
             self.ffmpeg_path, "-y",

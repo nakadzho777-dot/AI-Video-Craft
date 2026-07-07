@@ -29,12 +29,12 @@ def enforce_provider_allowed(limits: Limits, provider: AIProvider) -> None:
         )
 
 
-def enforce_ai_quota(limits: Limits, session: Session, user_id: int) -> None:
+def enforce_ai_quota(limits: Limits, session: Session, device_id: str) -> None:
     """Free版のAI制作 1日回数を超えていないか確認する（記録はしない）。"""
     limit = limits.ai_runs_per_day
     if limit is None:  # Pro は無制限
         return
-    used = get_ai_runs_today(session, user_id)
+    used = get_ai_runs_today(session, device_id)
     if used >= limit:
         raise _pay(
             f"Free版のAI制作は1日{limit}回までです（本日{used}回使用）。"
@@ -42,9 +42,9 @@ def enforce_ai_quota(limits: Limits, session: Session, user_id: int) -> None:
         )
 
 
-def record_ai_run(session: Session, user_id: int) -> None:
+def record_ai_run(session: Session, device_id: str) -> None:
     """AI制作の利用を1回記録する（生成成功後に呼ぶ）。"""
-    increment_ai_run(session, user_id)
+    increment_ai_run(session, device_id)
 
 
 def enforce_export_resolution(limits: Limits, height: int | None) -> None:

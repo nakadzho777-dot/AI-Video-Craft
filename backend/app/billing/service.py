@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from ..db.models import License, User
+from ..db.models import License
 from ..license.offline import issue_offline_token
 from ..logging_conf import get_logger
 
@@ -25,10 +25,10 @@ def _from_unix(ts: int | None) -> datetime | None:
     return datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
 
 
-def _get_stripe_license(session: Session, user_id: int) -> License | None:
+def _get_stripe_license(session: Session, device_id: str) -> License | None:
     return session.exec(
         select(License).where(
-            License.redeemed_by_user_id == user_id, License.source == "stripe"
+            License.device_id == device_id, License.source == "stripe"
         )
     ).first()
 
@@ -41,22 +41,22 @@ def _by_subscription(session: Session, sub_id: str) -> License | None:
 
 def issue_or_update(
     session: Session,
-    user_id: int,
+    device_id: str,
     *,
     kind: str,
     expires_at: datetime | None,
     subscription_id: str | None = None,
     customer_id: str | None = None,
 ) -> License:
-    """ユーザーの Stripe ライセンスを作成/更新する（1アカウント1件）。"""
-    lic = _get_stripe_license(session, user_id) or License(
+    """このPC(デバイス)の Stripe ライセンスを作成/更新する（1デバイス1件）。"""
+    lic = _get_stripe_license(session, device_id) or License(
         key=f"STRIPE-{secrets.token_hex(8)}"
     )
     lic.source = "stripe"
     lic.plan = "pro"
     lic.kind = kind
     lic.expires_at = expires_at
-    lic.redeemed_by_user_id = user_id
+    lic.device_id = device_id
     lic.redeemed_at = _utcnow()
     if subscription_id:
         lic.stripe_subscription_id = subscription_id
@@ -67,12 +67,10 @@ def issue_or_update(
     session.refresh(lic)
 
     # A+Bハイブリッド: オフライン利用トークンも発行して保存
-    user = session.get(User, user_id)
-    if user:
-        try:
-            issue_offline_token(session, user, lic)
-        except Exception as e:  # トークン発行失敗でも決済処理は成功扱い
-            logger.warning("オフライントークン発行に失敗: %s", e)
+    try:
+        issue_offline_token(session, device_id, lic)
+    except Exception as e:  # トークン発行失敗でも決済処理は成功扱い
+        logger.warning("オフライントークン発行に失敗: %s", e)
     return lic
 
 
@@ -82,13 +80,12 @@ def handle_event(session: Session, event: dict) -> str:
     obj = event.get("data", {}).get("object", {})
 
     if etype == "checkout.session.completed":
-        user_id = obj.get("client_reference_id") or obj.get("metadata", {}).get(
-            "user_id"
+        device_id = obj.get("client_reference_id") or obj.get("metadata", {}).get(
+            "device_id"
         )
         plan = obj.get("metadata", {}).get("plan", "perpetual")
-        if not user_id:
-            return "skip: user_id なし"
-        user_id = int(user_id)
+        if not device_id:
+            return "skip: device_id なし"
         customer_id = obj.get("customer")
 
         if obj.get("mode") == "subscription" or plan == "subscription":
@@ -96,16 +93,16 @@ def handle_event(session: Session, event: dict) -> str:
             # 初回は即Pro化（暫定期限）。正確な期限は invoice.paid で更新。
             expires = _utcnow() + timedelta(days=31)
             issue_or_update(
-                session, user_id, kind="subscription", expires_at=expires,
+                session, device_id, kind="subscription", expires_at=expires,
                 subscription_id=sub_id, customer_id=customer_id,
             )
-            return f"issued subscription for user {user_id}"
+            return f"issued subscription for device {device_id}"
         else:
             issue_or_update(
-                session, user_id, kind="perpetual", expires_at=None,
+                session, device_id, kind="perpetual", expires_at=None,
                 customer_id=customer_id,
             )
-            return f"issued perpetual for user {user_id}"
+            return f"issued perpetual for device {device_id}"
 
     if etype == "invoice.paid":
         sub_id = obj.get("subscription")
@@ -120,12 +117,10 @@ def handle_event(session: Session, event: dict) -> str:
         lic.expires_at = period_end or (_utcnow() + timedelta(days=31))
         session.add(lic)
         session.commit()
-        user = session.get(User, lic.redeemed_by_user_id)
-        if user:
-            try:
-                issue_offline_token(session, user, lic)  # 期限更新を反映
-            except Exception as e:
-                logger.warning("トークン再発行に失敗: %s", e)
+        try:
+            issue_offline_token(session, lic.device_id, lic)  # 期限更新を反映
+        except Exception as e:
+            logger.warning("トークン再発行に失敗: %s", e)
         return f"renewed subscription {sub_id}"
 
     if etype == "customer.subscription.deleted":
